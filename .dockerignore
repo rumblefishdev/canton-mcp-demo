@@ -1,0 +1,5 @@
+.git
+.state
+.signer
+dist
+node_modules

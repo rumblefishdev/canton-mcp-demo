@@ -1,0 +1,26 @@
+{
+  "name": "canton-mcp-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "onboard": "node dist/operator.js onboard",
+    "review": "node dist/operator.js review",
+    "client-config": "node dist/server.js --client-config"
+  },
+  "dependencies": {
+    "@canton-network/core-ledger-proto": "1.17.0",
+    "@canton-network/core-tx-hashing": "1.2.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}
