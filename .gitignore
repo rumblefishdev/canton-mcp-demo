@@ -1,3 +1,7 @@
 .state/
+.signer/
+.payments/
+.payment-signer/
+.localnet/
 dist/
 node_modules/

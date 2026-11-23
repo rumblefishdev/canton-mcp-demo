@@ -10,15 +10,15 @@ Build one open-source, self-hosted toolkit for Canton, targeting RFPs 14, 19, an
 
 ## What we have today
 
-The [demo](README.md) runs a TypeScript MCP server and a separate operator CLI against a Canton 3.7.4 test ledger in Docker Compose. It uses Canton’s built-in `Ping` contract to demonstrate external signing with two test parties, Alice and Bob.
+The MCP server uses a Canton profile for its participant URL, party, read credential, and policy. It provides party-scoped activity and two policy-checked actions. One transfers Canton Coin. The other accepts a Splitwell group request and creates a group on Canton.
 
-1. The agent calls `prepare_ping` to prepare a Ping from Alice to Bob and receives a request ID.
-2. The operator CLI recomputes the prepared transaction hash, checks that the transaction matches the expected Ping, and prompts a human to approve or reject. On approval, the CLI signs and submits it. Only the operator container mounts Alice’s test key.
-3. The agent calls `ping_status` to check the request outcome and retrieve the Canton update ID when confirmed. It can call `list_active_pings` to see Alice’s active Ping contracts.
+Both actions use the same proposal, expiry, approval, and ledger-confirmation workflow. Each defines its own inputs, policy, Canton commands, and signer verification. The reference terminal signer verifies the prepared transaction and its hash before prompting for approval. The runtime can recover a confirmation by looking up the approved hash.
+
+The optional [LocalNet walkthrough](demo/localnet/README.md) uses Splice 0.9.4 to fund disposable external parties and generate a profile for that same MCP server.
 
 ## What remains
 
-- Add authenticated Ledger API access that enforces the configured party’s permissions. The demo uses one participant and an unauthenticated API on the Docker network.
-- Implement private transaction history, Postgres query-store access, and public network API tools. The current read tools cover active Pings and demo request status.
-- Extend preparation and review to additional Canton actions. Replace the hard-coded Ping checks with a configurable policy, add a durable audit log, and integrate a wallet or external signer for deployment.
-- Build and document the DPM extension. Docker Compose is the current way to run the demo.
+- Validate the payment workflow against a hosted DevNet participant and integrate a deployment wallet or custody signer. The LocalNet signer holds a disposable key.
+- Have an independent Canton team try adding an action from their own Daml application.
+- Add Participant Query Store support for a concrete investigation workflow. Add public Scan access when a pilot calls for it.
+- Package and document a DPM component.
