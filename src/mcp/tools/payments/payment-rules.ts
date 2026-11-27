@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { partySchema, readPolicyDocument } from "../../shared/profile.js";
 
-export const asset = "Amulet";
+export const asset = "CC";
+export const cantonInstrumentId = "Amulet";
 export const amountSchema = z
   .string()
   .regex(/^(0|[1-9]\d{0,17})(\.\d{1,10})?$/)
@@ -15,11 +16,18 @@ export const policySchema = z.object({
   allowedAssets: z.array(z.literal(asset)),
   allowedRecipients: z.array(partySchema),
   maxAmount: amountSchema,
-  reviewSeconds: z.number().int().min(1).max(900),
 });
 
 export async function readPolicy() {
-  return policySchema.parse(await readPolicyDocument());
+  const document = z.looseObject({}).parse(await readPolicyDocument());
+  return policySchema.parse({
+    ...document,
+    allowedAssets: Array.isArray(document.allowedAssets)
+      ? document.allowedAssets.map((value) =>
+          value === cantonInstrumentId ? asset : value,
+        )
+      : document.allowedAssets,
+  });
 }
 
 export const transferSchema = z.object({
@@ -27,7 +35,7 @@ export const transferSchema = z.object({
   amount: amountSchema.describe(
     "Positive transfer amount as a decimal string.",
   ),
-  asset: z.literal(asset).describe("Asset to transfer, expressed as Amulet."),
+  asset: z.literal(asset).describe("Asset to transfer, expressed as CC."),
 });
 export type Transfer = z.infer<typeof transferSchema>;
 

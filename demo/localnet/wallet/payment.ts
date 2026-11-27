@@ -1,35 +1,47 @@
 import {
+  asset,
+  cantonInstrumentId,
   checkPolicy,
   readPolicy,
   transferSchema,
 } from "../../../dist/mcp/tools/payments/payment-rules.js";
-import { readPaymentSignerConfig } from "./config.js";
-import type { Reviewer } from "./reviewers.js";
-import { transferWallet, verifyPayment } from "./wallet.js";
+import type { Proposal } from "../../../dist/mcp/shared/proposals.js";
+import type { WalletPaymentConfig } from "./config.js";
+import { transferWallet, verifyPayment } from "./payment-effects.js";
+import type { VerifiedTransaction } from "./prepared.js";
 
-export const paymentReviewer: Reviewer = {
-  async checkPolicy({ proposal }) {
+function parseTransfer(input: unknown) {
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    "asset" in input &&
+    input.asset === cantonInstrumentId
+  ) {
+    return transferSchema.parse({ ...input, asset });
+  }
+  return transferSchema.parse(input);
+}
+
+export const paymentReviewer = {
+  async checkPolicy(proposal: Proposal) {
     const policy = await readPolicy();
-    const reason = checkPolicy(transferSchema.parse(proposal.input), policy);
+    const reason = checkPolicy(parseTransfer(proposal.input), policy);
     if (reason) throw new Error(reason);
-    return policy.reviewSeconds;
   },
-  async plan({ proposal, token }) {
-    const config = await readPaymentSignerConfig();
-    const transfer = transferSchema.parse(proposal.input);
+  async plan(proposal: Proposal, token: string, config: WalletPaymentConfig) {
+    const transfer = parseTransfer(proposal.input);
     const sdk = await transferWallet(config, token);
     const [command, disclosedContracts] = await sdk.token.transfer.create({
       sender: config.sender,
       recipient: transfer.recipient,
       amount: transfer.amount,
-      instrumentId: transfer.asset,
+      instrumentId: cantonInstrumentId,
       registryUrl: config.registryUrl,
-      expirationDate: new Date(proposal.expiresAt),
     });
     return {
       commands: [command],
       disclosedContracts,
-      verify(transaction) {
+      verify(transaction: VerifiedTransaction) {
         const verified = verifyPayment(
           transaction,
           config,

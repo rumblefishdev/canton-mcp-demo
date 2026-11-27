@@ -7,8 +7,8 @@ const baseRequest = z.object({
   requestId: requestIdSchema,
   createdAt: z.iso.datetime(),
   action: z.string().min(1),
+  reviewMode: z.literal("wallet").optional(),
   input: z.unknown(),
-  terms: z.record(z.string(), z.unknown()).optional(),
   party: partySchema.optional(),
   synchronizer: z.string().min(1).optional(),
 });
@@ -16,17 +16,37 @@ const baseRequest = z.object({
 const proposalSchema = z.discriminatedUnion("kind", [
   baseRequest.extend({
     kind: z.literal("proposal"),
-    expiresAt: z.iso.datetime(),
+    // Older handoffs may already have a deadline signed into the transaction.
+    expiresAt: z.iso.datetime().optional(),
   }),
   baseRequest.extend({
     kind: z.literal("policy_rejected"),
     reason: z.string(),
   }),
 ]);
-const decisionSchema = z.object({
-  decision: z.enum(["approve", "reject"]),
+const walletReviewSchema = z.object({
+  reference: z.string().min(1),
+  reviewUrl: z.url(),
+  preparedHash: z.string().min(1),
+});
+const storedWalletReviewSchema = z.preprocess((data) => {
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    "reference" in data ||
+    !("transactionId" in data)
+  )
+    return data;
+  return { ...data, reference: data.transactionId };
+}, walletReviewSchema);
+const walletResultSchema = z.object({
+  status: z.enum([
+    "rejected",
+    "wallet_request_removed",
+    "wallet_failed",
+    "wallet_approval_unavailable",
+  ]),
   recordedAt: z.iso.datetime(),
-  preparedHash: z.string(),
 });
 const confirmationSchema = z.object({
   updateId: z.string(),
@@ -65,28 +85,20 @@ export type Proposal = Extract<
   z.infer<typeof proposalSchema>,
   { kind: "proposal" }
 >;
-export const readDecision = (id: string) =>
-  readEvent(id, "decision", decisionSchema);
+export function isLegacyProposalExpired({ expiresAt }: Proposal) {
+  return expiresAt !== undefined && Date.parse(expiresAt) <= Date.now();
+}
 export const readConfirmation = (id: string) =>
   readEvent(id, "confirmation", confirmationSchema);
-export const readUnconfirmed = (id: string) =>
-  readEvent(id, "submission-unconfirmed", failureSchema);
-
-export const writeProposal = (proposal: z.infer<typeof proposalSchema>) =>
+export const writeProposal = (
+  proposal:
+    | Omit<Proposal, "expiresAt">
+    | Extract<z.infer<typeof proposalSchema>, { kind: "policy_rejected" }>,
+) =>
   writeOnce(
     eventFile(proposal.requestId, "proposal"),
     JSON.stringify(proposal),
   );
-export const writeDecision = (
-  id: string,
-  decision: z.infer<typeof decisionSchema>,
-) => writeOnce(eventFile(id, "decision"), JSON.stringify(decision));
-export const writeUnconfirmed = (id: string) =>
-  writeOnce(
-    eventFile(id, "submission-unconfirmed"),
-    JSON.stringify({ recordedAt: new Date().toISOString() }),
-  );
-
 export async function recordConfirmation(id: string, updateId: string) {
   try {
     await writeOnce(
@@ -102,3 +114,27 @@ export async function recordConfirmation(id: string, updateId: string) {
     }
   }
 }
+
+export const startWalletReview = (id: string) =>
+  writeOnce(
+    eventFile(id, "wallet-started"),
+    JSON.stringify({ recordedAt: new Date().toISOString() }),
+  );
+export const readWalletReviewStart = (id: string) =>
+  readEvent(id, "wallet-started", failureSchema);
+export const readWalletReview = (id: string) =>
+  readEvent(id, "wallet-review", storedWalletReviewSchema);
+export const writeWalletReview = (
+  id: string,
+  review: z.infer<typeof walletReviewSchema>,
+) => writeOnce(eventFile(id, "wallet-review"), JSON.stringify(review));
+export const readWalletResult = (id: string) =>
+  readEvent(id, "wallet-result", walletResultSchema);
+export const writeWalletResult = (
+  id: string,
+  status: z.infer<typeof walletResultSchema>["status"],
+) =>
+  writeOnce(
+    eventFile(id, "wallet-result"),
+    JSON.stringify({ status, recordedAt: new Date().toISOString() }),
+  );

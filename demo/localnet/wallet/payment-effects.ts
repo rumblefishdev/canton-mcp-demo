@@ -1,14 +1,15 @@
 import { SDK } from "@canton-network/wallet-sdk";
 import {
   amountUnits,
+  cantonInstrumentId,
   type Transfer,
 } from "../../../dist/mcp/tools/payments/payment-rules.js";
-import type { PaymentSignerConfig } from "./config.js";
+import type { WalletPaymentConfig } from "./config.js";
 import { singleRootExercise, type VerifiedTransaction } from "./prepared.js";
 
 export const transferChoice = "TransferFactory_Transfer";
 export const completedTransfer = "TransferInstructionResult_Completed";
-export function transferWallet(config: PaymentSignerConfig, token: string) {
+export function transferWallet(config: WalletPaymentConfig, token: string) {
   const auth = { method: "static" as const, token };
   return SDK.create({
     auth,
@@ -20,11 +21,10 @@ export function transferWallet(config: PaymentSignerConfig, token: string) {
 
 export function verifyPayment(
   transaction: VerifiedTransaction,
-  config: PaymentSignerConfig,
+  config: WalletPaymentConfig,
   transfer: Transfer,
   factoryContractId: string,
 ) {
-  const { deadline } = transaction;
   const exercise = singleRootExercise(transaction);
   const argument = exercise.chosenValue?.sum;
   const fields = argument?.oneofKind === "record" ? argument.record.fields : [];
@@ -34,7 +34,7 @@ export function verifyPayment(
     payment?.oneofKind === "record"
       ? payment.record.fields.map((field) => field.value?.sum)
       : [];
-  const [sender, recipient, amount, instrument, , executeBefore] = values;
+  const [sender, recipient, amount, instrument] = values;
   const instrumentFields =
     instrument?.oneofKind === "record"
       ? instrument.record.fields.map((field) => field.value?.sum)
@@ -66,9 +66,7 @@ export function verifyPayment(
     instrumentFields[0]?.oneofKind !== "party" ||
     instrumentFields[0].party !== config.instrumentAdmin ||
     instrumentFields[1]?.oneofKind !== "text" ||
-    instrumentFields[1].text !== transfer.asset ||
-    executeBefore?.oneofKind !== "timestamp" ||
-    executeBefore.timestamp !== deadline.toString()
+    instrumentFields[1].text !== cantonInstrumentId
   ) {
     throw new Error(
       "The signed payload must match the requested Canton Coin transfer.",
@@ -86,6 +84,6 @@ export function verifyPayment(
     sender: sender.party,
     recipient: recipient.party,
     amount: amount.numeric,
-    asset: instrumentFields[1].text,
+    asset: transfer.asset,
   };
 }

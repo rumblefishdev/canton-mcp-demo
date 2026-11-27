@@ -53,36 +53,23 @@ case "$action" in
     if [[ ! -s "$cache/auth-secret" ]]; then
       node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))' > "$cache/auth-secret"
     fi
-    export CANTON_PAYMENT_LOCAL_SECRET
-    CANTON_PAYMENT_LOCAL_SECRET=$(< "$cache/auth-secret")
-    sed 's/secret = "unsafe"/secret = ${CANTON_PAYMENT_LOCAL_SECRET}/g' \
+    export CANTON_LOCALNET_AUTH_SECRET
+    CANTON_LOCALNET_AUTH_SECRET=$(< "$cache/auth-secret")
+    sed 's/secret = "unsafe"/secret = ${CANTON_LOCALNET_AUTH_SECRET}/g' \
       "$LOCALNET_DIR/conf/canton/app-user/app-auth.conf" > "$CANTON_LOCALNET_OVERRIDES/canton-auth.conf"
-    sed 's/secret = "unsafe"/secret = ${CANTON_PAYMENT_LOCAL_SECRET}/g' \
+    sed 's/secret = "unsafe"/secret = ${CANTON_LOCALNET_AUTH_SECRET}/g' \
       "$LOCALNET_DIR/conf/splice/app-user/app-auth.conf" > "$CANTON_LOCALNET_OVERRIDES/splice-auth.conf"
     # The Docker service users must be able to read the overrides. Only the separate secret file contains the key.
     chmod 644 "$CANTON_LOCALNET_OVERRIDES/"*.conf
-    npm run build:localnet
-    docker build -t canton-mcp-demo:local "$repo"
     "${upstream[@]}" up -d --wait --wait-timeout 360
-    node dist/demo/setup.js
-    ;;
-  seed-group)
-    if [[ ! -s "$cache/auth-secret" ]]; then
-      echo "Start LocalNet before seeding a Splitwell group request." >&2
-      exit 1
-    fi
-    export CANTON_PAYMENT_LOCAL_SECRET
-    CANTON_PAYMENT_LOCAL_SECRET=$(< "$cache/auth-secret")
-    export CANTON_LOCALNET_SPLITWELL_DAR="$LOCALNET_DIR/../../dars/splitwell-current.dar"
-    node dist/demo/seed-group.js
     ;;
   down|status)
     if [[ ! -f "$cache/auth-secret" ]]; then
       echo "LocalNet has not been started by this script." >&2
       exit 1
     fi
-    export CANTON_PAYMENT_LOCAL_SECRET
-    CANTON_PAYMENT_LOCAL_SECRET=$(< "$cache/auth-secret")
+    export CANTON_LOCALNET_AUTH_SECRET
+    CANTON_LOCALNET_AUTH_SECRET=$(< "$cache/auth-secret")
     if [[ "$action" == down ]]; then
       "${upstream[@]}" down
     else
@@ -90,7 +77,7 @@ case "$action" in
     fi
     ;;
   *)
-    echo "Usage: npm run payments:localnet -- {up|down|status|seed-group}" >&2
+    echo "Usage: npm run demo -- {up|down|status}" >&2
     exit 2
     ;;
 esac

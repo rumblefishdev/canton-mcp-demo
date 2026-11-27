@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { findTransactionByHash, connectLedger } from "./ledger.js";
-import { readProfile, readerTokenFile, readToken } from "./profile.js";
+import { findTransactionByHash, connectCompanionReader } from "./ledger.js";
+import { readProfile, requireReaderSocket } from "./profile.js";
+import { walletStatus } from "./wallet-status.js";
 import {
+  isLegacyProposalExpired,
   readConfirmation,
-  readDecision,
   readProposal,
-  readUnconfirmed,
+  readWalletResult,
+  readWalletReview,
+  readWalletReviewStart,
   recordConfirmation,
   writeProposal,
 } from "./proposals.js";
@@ -16,10 +19,7 @@ export async function connectReader(
   profile?: Awaited<ReturnType<typeof readProfile>>,
 ) {
   const config = profile ?? (await readProfile());
-  const ledger = connectLedger(
-    process.env.CANTON_PAYMENT_LEDGER_URL ?? config.ledgerUrl,
-    await readToken(readerTokenFile),
-  );
+  const ledger = connectCompanionReader(requireReaderSocket());
   return { config, ledger };
 }
 
@@ -29,10 +29,6 @@ export function result(value: Record<string, unknown>) {
     structuredContent: value,
   };
 }
-
-export type Assessment =
-  | { reason: string }
-  | { reviewSeconds: number; terms?: Record<string, unknown> };
 
 export function registerAction<Input extends z.ZodRawShape>(
   server: McpServer,
@@ -44,7 +40,7 @@ export function registerAction<Input extends z.ZodRawShape>(
     assess: (
       input: z.output<z.ZodObject<Input>>,
       profile: Awaited<ReturnType<typeof readProfile>>,
-    ) => Promise<Assessment>;
+    ) => Promise<string | undefined>;
   },
 ) {
   server.registerTool(
@@ -60,44 +56,38 @@ export function registerAction<Input extends z.ZodRawShape>(
     },
     async (input) => {
       const profile = await readProfile();
-      const assessment = await action.assess(input, profile);
-      const createdAt = new Date();
+      const reason = await action.assess(input, profile);
       const requestId = randomUUID();
       const base = {
         requestId,
         action: action.id,
         input,
-        createdAt: createdAt.toISOString(),
+        createdAt: new Date().toISOString(),
         party: profile.sender,
         synchronizer: profile.synchronizer,
+        reviewMode: "wallet" as const,
       };
-      if ("reason" in assessment) {
+      if (reason !== undefined) {
         await writeProposal({
           ...base,
           kind: "policy_rejected",
-          reason: assessment.reason,
+          reason,
         });
         return result({
           request_id: requestId,
           status: "policy_rejected",
-          reason: assessment.reason,
+          reason,
         });
       }
-      const expiresAt = new Date(
-        createdAt.getTime() + assessment.reviewSeconds * 1_000,
-      ).toISOString();
-      await writeProposal({
-        ...base,
-        kind: "proposal",
-        expiresAt,
-        ...(assessment.terms && { terms: assessment.terms }),
-      });
+      await writeProposal({ ...base, kind: "proposal" });
+      const wallet = await walletStatus();
+      if (wallet.status !== "connected")
+        return result({ request_id: requestId, ...wallet });
       return result({
         request_id: requestId,
         status: "awaiting_review",
-        expires_at: expiresAt,
-        terms: assessment.terms,
-        review: `Run npm run actions:review -- ${requestId} in the signer terminal.`,
+        review:
+          "Open the review link from action_status when the wallet companion has picked up the proposal.",
       });
     },
   );
@@ -118,31 +108,36 @@ export async function actionStatus(requestId: string, action?: string) {
   const confirmation = await readConfirmation(requestId);
   if (confirmation)
     return { status: "confirmed", update_id: confirmation.updateId };
-  const decision = await readDecision(requestId);
-  if (!decision) {
+  if (proposal.reviewMode !== "wallet")
+    return { status: "wallet_approval_unavailable" };
+  const walletResult = await readWalletResult(requestId);
+  if (walletResult) return { status: walletResult.status };
+  const wallet = await walletStatus();
+  if (wallet.status !== "connected") return wallet;
+  const review = await readWalletReview(requestId);
+  if (review) {
+    const { ledger } = await connectReader(config);
+    const match = await findTransactionByHash(
+      ledger,
+      config.sender,
+      review.preparedHash,
+    );
+    if (match?.commandId === requestId) {
+      await recordConfirmation(requestId, match.updateId);
+      return { status: "confirmed", update_id: match.updateId };
+    }
+  }
+  if (isLegacyProposalExpired(proposal)) return { status: "expired" };
+  if (review)
     return {
-      status:
-        Date.parse(proposal.expiresAt) <= Date.now()
-          ? "expired"
-          : "awaiting_review",
+      status: "awaiting_wallet_approval",
+      review_url: review.reviewUrl,
     };
-  }
-  if (decision.decision === "reject") return { status: "rejected" };
-
-  const { ledger } = await connectReader(config);
-  // The signer commits to the specific prepared transaction before attempting execution.
-  const match = await findTransactionByHash(
-    ledger,
-    config.sender,
-    decision.preparedHash,
-  );
-  if (match?.commandId === requestId) {
-    await recordConfirmation(requestId, match.updateId);
-    return { status: "confirmed", update_id: match.updateId };
-  }
+  if (proposal.expiresAt !== undefined)
+    return { status: "wallet_approval_unavailable" };
   return {
-    status: (await readUnconfirmed(requestId))
-      ? "submission_unconfirmed"
-      : "approved_unconfirmed",
+    status: (await readWalletReviewStart(requestId))
+      ? "wallet_handoff_unconfirmed"
+      : "awaiting_review",
   };
 }

@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { PreparedTransaction } from "@canton-network/core-ledger-proto";
 import { computePreparedTransactionHash } from "@canton-network/core-tx-hashing";
 import { z } from "zod";
-import type { SignerConfig } from "./config.js";
+import type { WalletPaymentConfig } from "./config.js";
 
 export const hashingSchemeVersion = "HASHING_SCHEME_VERSION_V3";
 export const preparedSchema = z.object({
@@ -13,9 +13,8 @@ export const preparedSchema = z.object({
 
 export async function verifyPrepared(
   prepared: z.infer<typeof preparedSchema>,
-  config: Pick<SignerConfig, "sender" | "synchronizer">,
+  config: Pick<WalletPaymentConfig, "sender" | "synchronizer">,
   commandId: string,
-  expiresAt: string,
 ) {
   const hash = await computePreparedTransactionHash(
     prepared.preparedTransaction,
@@ -30,18 +29,16 @@ export async function verifyPrepared(
     Buffer.from(prepared.preparedTransaction, "base64"),
   );
   const submitter = metadata?.submitterInfo;
-  const deadline = BigInt(Date.parse(expiresAt)) * 1_000n;
   if (
     !transaction?.roots.length ||
     submitter?.commandId !== commandId ||
     submitter.actAs.length !== 1 ||
     submitter.actAs[0] !== config.sender ||
     metadata?.synchronizerId.split("::").slice(0, 2).join("::") !==
-      config.synchronizer ||
-    metadata?.maxRecordTime !== deadline
+      config.synchronizer
   ) {
     throw new Error(
-      "The prepared transaction does not match the requested action, party, network or deadline.",
+      "The prepared transaction does not match the requested action, party or network.",
     );
   }
 
@@ -49,7 +46,6 @@ export async function verifyPrepared(
     hash: Buffer.from(hash).toString("base64"),
     roots: transaction.roots,
     nodes: transaction.nodes,
-    deadline,
   };
 }
 

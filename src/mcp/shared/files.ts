@@ -3,7 +3,6 @@ import {
   mkdir,
   mkdtemp,
   readFile,
-  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -21,24 +20,15 @@ export async function readOptional(path: string) {
   }
 }
 
-async function writeAtomic(
-  path: string,
-  contents: string,
-  publish: typeof link,
-) {
+export async function writeOnce(path: string, contents: string) {
   const directory = dirname(path);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const temporary = await mkdtemp(join(directory, "write-"));
   try {
     const file = join(temporary, "data");
     await writeFile(file, contents, { mode: 0o600 });
-    await publish(file, path);
+    await link(file, path);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
 }
-
-export const writeOnce = (path: string, contents: string) =>
-  writeAtomic(path, contents, link);
-export const replaceFile = (path: string, contents: string) =>
-  writeAtomic(path, contents, rename);

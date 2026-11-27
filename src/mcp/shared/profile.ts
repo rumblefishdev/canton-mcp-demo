@@ -4,8 +4,9 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 export const profileDirectory =
+  process.env.CANTON_MCP_PROFILE_DIR ??
   process.env.CANTON_PAYMENT_DIRECTORY ??
-  fileURLToPath(new URL("../../../.payments/", import.meta.url));
+  fileURLToPath(new URL("../../../.localnet/wallet-profile/", import.meta.url));
 
 export const partySchema = z.string().regex(/^[a-zA-Z0-9:_\-]+::[a-f0-9]+$/);
 export const profileFields = {
@@ -17,7 +18,9 @@ const configSchema = z.object(profileFields);
 
 export const configFile = join(profileDirectory, "config.json");
 export const policyFile =
-  process.env.CANTON_PAYMENT_POLICY ?? join(profileDirectory, "policy.json");
+  process.env.CANTON_MCP_POLICY_FILE ??
+  process.env.CANTON_PAYMENT_POLICY ??
+  join(profileDirectory, "policy.json");
 
 export async function readProfileDocument() {
   const data = z
@@ -35,12 +38,11 @@ export async function readPolicyDocument(): Promise<unknown> {
   return JSON.parse(await readFile(policyFile, "utf8"));
 }
 
-export async function readToken(path: string) {
-  const token = (await readFile(path, "utf8")).trim();
-  if (!token) throw new Error("The Canton Ledger API token file is empty.");
-  return token;
+export function requireReaderSocket() {
+  const socket = process.env.CANTON_MCP_WALLET_READER_SOCKET;
+  if (!socket)
+    throw new Error(
+      "Set CANTON_MCP_WALLET_READER_SOCKET to the companion's ledger reader socket.",
+    );
+  return socket;
 }
-
-export const readerTokenFile =
-  process.env.CANTON_PAYMENT_READER_TOKEN_FILE ??
-  join(profileDirectory, "reader.jwt");

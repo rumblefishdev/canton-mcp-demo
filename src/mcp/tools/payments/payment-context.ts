@@ -6,7 +6,7 @@ import { readProfile } from "../../shared/profile.js";
 
 const CONFIG = {
   description:
-    "Show the configured sender, allowed recipients, and payment proposal policy.",
+    "Show the configured sender, allowed recipients, and payment proposal policy. Use wallet_connection to check the wallet and get a login link.",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,

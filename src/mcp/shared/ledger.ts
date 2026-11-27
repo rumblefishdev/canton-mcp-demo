@@ -1,3 +1,5 @@
+import { request } from "node:http";
+import { json } from "node:stream/consumers";
 import { z } from "zod";
 const offsetSchema = z
   .union([z.string().regex(/^\d+$/), z.number().int().nonnegative()])
@@ -14,29 +16,53 @@ export class LedgerError extends Error {
   }
 }
 
-export function connectLedger(url: string, token: string) {
-  return async (path: string, body?: object): Promise<unknown> => {
-    const response = await fetch(new URL(path, url), {
-      method: body === undefined ? "GET" : "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      redirect: "error",
-      signal: AbortSignal.timeout(25_000),
-    });
-    if (!response.ok)
-      throw new LedgerError(
-        response.status,
-        path,
-        (await response.text()).slice(0, 500),
-      );
-    return response.json();
-  };
-}
+export type Ledger = (path: string, body?: object) => Promise<unknown>;
 
-export type Ledger = ReturnType<typeof connectLedger>;
+export function connectCompanionReader(socketPath: string): Ledger {
+  return (path, body) =>
+    new Promise((resolve, reject) => {
+      const requestBody = body === undefined ? undefined : JSON.stringify(body);
+      const req = request(
+        {
+          socketPath,
+          path,
+          method: body === undefined ? "GET" : "POST",
+          signal: AbortSignal.timeout(40_000),
+          headers:
+            requestBody === undefined
+              ? {}
+              : {
+                  "Content-Type": "application/json",
+                  "Content-Length": Buffer.byteLength(requestBody),
+                },
+        },
+        (response) => {
+          void json(response)
+            .then((result) => {
+              const status = response.statusCode ?? 502;
+              if (status >= 200 && status < 300) resolve(result);
+              else
+                reject(
+                  new LedgerError(
+                    status,
+                    path,
+                    z.object({ error: z.string() }).parse(result).error,
+                  ),
+                );
+            })
+            .catch(reject);
+        },
+      );
+      req.once("error", () =>
+        reject(
+          new Error(
+            "The wallet reader is unavailable. Check that the wallet companion is running.",
+          ),
+        ),
+      );
+      req.end(requestBody);
+    });
+}
 const eventDetails = z.object({
   templateId: z.string(),
   contractId: z.string(),
@@ -66,72 +92,24 @@ const updateSchema = z.object({
   }),
 });
 
-function eventFormat(party: string, includeCreatedEventBlob = false) {
-  return {
-    filtersByParty: {
-      [party]: {
-        cumulative: [
-          {
-            identifierFilter: {
-              WildcardFilter: { value: { includeCreatedEventBlob } },
-            },
-          },
-        ],
-      },
-    },
-    verbose: true,
-  };
-}
-
 function transactionFormat(party: string) {
   return {
-    eventFormat: { ...eventFormat(party), verbose: false },
+    eventFormat: {
+      filtersByParty: {
+        [party]: {
+          cumulative: [
+            {
+              identifierFilter: {
+                WildcardFilter: { value: { includeCreatedEventBlob: false } },
+              },
+            },
+          ],
+        },
+      },
+      verbose: false,
+    },
     transactionShape: "TRANSACTION_SHAPE_LEDGER_EFFECTS",
   };
-}
-
-export async function readContract(
-  ledger: Ledger,
-  party: string,
-  contractId: string,
-  includeCreatedEventBlob = false,
-) {
-  try {
-    const response = z
-      .object({
-        created: z
-          .object({
-            synchronizerId: z.string(),
-            createdEvent: z.object({
-              templateId: z.string(),
-              contractId: z.string(),
-              createArgument: z.unknown(),
-              createdEventBlob: z.string().optional(),
-            }),
-          })
-          .nullish(),
-        archived: z.unknown(),
-      })
-      .parse(
-        await ledger("/v2/events/events-by-contract-id", {
-          contractId,
-          eventFormat: eventFormat(party, includeCreatedEventBlob),
-        }),
-      );
-    if (
-      !response.created ||
-      response.archived != null ||
-      response.created.createdEvent.contractId !== contractId
-    )
-      return;
-    return {
-      ...response.created.createdEvent,
-      synchronizerId: response.created.synchronizerId,
-    };
-  } catch (error) {
-    if (error instanceof LedgerError && error.status === 404) return;
-    throw error;
-  }
 }
 
 export async function ledgerEnd(ledger: Ledger) {

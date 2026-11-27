@@ -3,14 +3,14 @@ services:
     ports: !reset []
   canton:
     environment:
-      CANTON_PAYMENT_LOCAL_SECRET: ${CANTON_PAYMENT_LOCAL_SECRET:?Start LocalNet via the demo script}
+      CANTON_LOCALNET_AUTH_SECRET: ${CANTON_LOCALNET_AUTH_SECRET:?Start LocalNet via the demo script}
     volumes:
       - ${CANTON_LOCALNET_OVERRIDES}/canton-auth.conf:/app/app-user/on/app-auth.conf:ro
     ports: !override
       - 127.0.0.1:2975:2975
   splice:
     environment:
-      CANTON_PAYMENT_LOCAL_SECRET: ${CANTON_PAYMENT_LOCAL_SECRET:?Start LocalNet via the demo script}
+      CANTON_LOCALNET_AUTH_SECRET: ${CANTON_LOCALNET_AUTH_SECRET:?Start LocalNet via the demo script}
     volumes:
       - ${CANTON_LOCALNET_OVERRIDES}/splice-auth.conf:/app/app-user/on/app-auth.conf:ro
     ports: !override

@@ -1,0 +1,43 @@
+{
+  "kernel": {
+    "id": "mcp-localnet",
+    "clientType": "remote",
+    "publicUrl": "http://127.0.0.1:3030"
+  },
+  "server": {
+    "port": 3030,
+    "allowedOrigins": ["http://127.0.0.1:3030"],
+    "requestSizeLimit": "8mb"
+  },
+  "logging": { "level": "warn", "format": "json" },
+  "store": { "connection": { "type": "sqlite", "database": "/wallet-state/wallet.sqlite" } },
+  "signingStore": { "connection": { "type": "sqlite", "database": "/wallet-state/keys.sqlite" } },
+  "signingProviders": { "walletKernel": {} },
+  "idps": [{ "id": "localnet", "type": "self_signed", "issuer": "unsafe-auth" }],
+  "networks": [
+    {
+      "id": "canton:mcp-localnet",
+      "name": "Splice LocalNet",
+      "description": "Disposable ledger for the Canton MCP demo",
+      "identityProviderId": "localnet",
+      "ledgerApi": { "baseUrl": "http://canton:2975" },
+      "auth": {
+        "method": "self_signed",
+        "issuer": "unsafe-auth",
+        "audience": "https://canton.network.global",
+        "scope": "daml_ledger_api",
+        "clientId": "mcp-wallet-localnet",
+        "clientSecretEnv": "WG_LOCALNET_SECRET"
+      },
+      "adminAuth": {
+        "method": "self_signed",
+        "issuer": "unsafe-auth",
+        "audience": "https://canton.network.global",
+        "scope": "daml_ledger_api",
+        "clientId": "ledger-api-user",
+        "clientSecretEnv": "WG_LOCALNET_SECRET"
+      }
+    }
+  ],
+  "hashingScheme": { "version": "HASHING_SCHEME_VERSION_V3" }
+}

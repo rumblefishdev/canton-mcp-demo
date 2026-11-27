@@ -7,12 +7,11 @@ export const registerProposePaymentTool = (server: McpServer): void => {
   registerAction(server, {
     id: "payment",
     tool: "propose_payment",
-    description: "Queue a Canton Coin transfer for human review.",
+    description:
+      "Queue a Canton Coin transfer for human review. If wallet connection is required, open the returned connection_url, connect, and check payment_status using the request ID.",
     inputSchema: transferSchema,
     async assess(transfer) {
-      const policy = await readPolicy();
-      const reason = checkPolicy(transfer, policy);
-      return reason ? { reason } : { reviewSeconds: policy.reviewSeconds };
+      return checkPolicy(transfer, await readPolicy());
     },
   });
 };
